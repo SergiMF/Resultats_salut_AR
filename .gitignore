@@ -1,0 +1,8 @@
+Resultats/
+QC/
+Dataset/
+Dades antigues/
+*.jpeg
+*.RData
+*.txt
+*.Rhistory
