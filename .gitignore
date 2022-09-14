@@ -6,3 +6,4 @@ Dades antigues/
 *.RData
 *.txt
 *.Rhistory
+.Rproj.user

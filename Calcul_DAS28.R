@@ -38,16 +38,14 @@ Any.final<-year(today())
 df.var<-df.proc %>% select(NHC,NHC..sense.ceros.,CIP,Procés.ID,RPT.ATC.Codi,RPT.ATC.Descripció,RPT.Indicació.Codi,RPT.Indicació.Descripció,Procés.Inici.Data,Procés.Fi.Data,
                            Pas.Codi,Pas.Alliberat.Data,Pas.Número.dins.el.procés,Pas.següent.data,Pas.previ.data,
                            Variable.Descripció.Llarga,Valor.Variable.Codi) %>% 
-  arrange(NHC,Procés.ID,Pas.Alliberat.Data) #Numero.dins.procés??No coincideix amb dates
+  arrange(NHC,Procés.ID,Pas.Alliberat.Data,Pas.Número.dins.el.procés) #Numero.dins.procés??No coincideix amb dates
 
 #Els valors de DAS28>10 són errors. Els separem
 Outlyers.DAS28<-df.var %>% filter(Valor.Variable.Codi>10) #21 registres
 
-df.var.neta<-df.var %>% filter(Valor.Variable.Codi<=10)
-
 #Càlcul Increments de DAS i temps entre Pas
 
-df.dif.pas<-df.var.neta %>% dplyr::group_by(NHC,Procés.ID) %>% 
+df.dif.pas<-df.var%>% dplyr::group_by(NHC,Procés.ID) %>% 
   dplyr::mutate(
     Any.inici.proces=year(Procés.Inici.Data),
     DAS28.Activitat.pas=case_when(
@@ -70,14 +68,30 @@ df.dif.pas<-df.var.neta %>% dplyr::group_by(NHC,Procés.ID) %>%
       Diferencial.max.proces<0 ~'Èxit',
       (is.infinite(Diferencial.max.proces) & N>1) ~'Sense canvis',
       Diferencial.max.proces>0 ~'Fracàs'
-    )
-  ) %>% ungroup()
+    ),
+    Error.inici=ifelse(first(Valor.Variable.Codi<3.2)|any(Mesos.desde.primer.pas==0 & Valor.Variable.Codi<3.2) ,'Si','No'),#Comencen amb DAS28 baix
+  ) %>% ungroup() %>% 
+  group_by(NHC) %>% #controls
+  dplyr::mutate(
+    Tractament.pur=ifelse(n_distinct(RPT.ATC.Codi)==1,'Si','No') #únic tractament
+  ) %>% ungroup() %>% 
+  filter(Valor.Variable.Codi<=10) #outlyers
+
+# NETEJA DE DADES (Out of scoping)
+# -Pacients que comencen amb DAS<3.2  
+# -Pacients que tenen més d'un tractament
+df.dif.pas.2<-df.dif.pas %>% 
+  filter(Tractament.pur=='Si') %>% 
+  filter(Error.inici=='No') #n=8303(-32.91%)
+
+
+
 
 #Mirem els anys de seguiment dels Valors de DAS28
-Any.min.Das28<-min(df.dif.pas$Any.inici.proces,na.rm = T)
-Any.max.Das28<-max(df.dif.pas$Any.inici.proces,na.rm = T)
+Any.min.Das28<-min(df.dif.pas.2$Any.inici.proces,na.rm = T)
+Any.max.Das28<-max(df.dif.pas.2$Any.inici.proces,na.rm = T)
  
-df.resultats.proces<-df.dif.pas %>% 
+df.resultats.proces<-df.dif.pas.2 %>% 
   select(NHC,CIP,Any.inici.proces,Procés.ID,RPT.ATC.Descripció,RPT.Indicació.Codi,RPT.Indicació.Descripció,Variable.Descripció.Llarga,
          Diferencial.max.proces,N,Resultat.tractament.proces,Dies.fins.DAS.mínim) %>% 
   distinct()
@@ -196,12 +210,12 @@ Plot.resultats.Percentatge<-
 # Variació DAS28 al llarg del temps per Medicament ------------------------
 
 
-medicaments<-df.dif.pas %>% select(RPT.ATC.Codi,RPT.ATC.Descripció) %>% distinct()
+medicaments<-df.dif.pas.2 %>% select(RPT.ATC.Codi,RPT.ATC.Descripció) %>% distinct()
 
 # Gràfic regressions lineals per medicament i DAS28:
 funcio.DAS28<-function(x){
   #dataset:
-  df.variacio.DAS<-df.dif.pas %>% 
+  df.variacio.DAS<-df.dif.pas.2 %>% 
     filter(RPT.ATC.Codi%in%medicaments$RPT.ATC.Codi[x],
            Resultat.tractament.proces%in%'Èxit') %>% 
     mutate(DAS28.Activitat.pas=factor(DAS28.Activitat.pas,
@@ -211,7 +225,7 @@ funcio.DAS28<-function(x){
                                                  'Remissió')))
   
   #Coeficient de correlació de Pearson:
-  cor.test(df.variacio.DAS$Valor.Variable.Codi,df.variacio.DAS$Mesos.desde.primer.pas  )
+  Pearson<-cor.test(df.variacio.DAS$Valor.Variable.Codi,df.variacio.DAS$Mesos.desde.primer.pas  )
   # Model amb regressió linial
   model1<-lm(Valor.Variable.Codi~Mesos.desde.primer.pas,data = df.variacio.DAS)
   
