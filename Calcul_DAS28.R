@@ -31,8 +31,8 @@ df.presc<-readr::read_csv2(Arxiu.Prescripcions,) %>%
     dplyr::mutate(across(.cols = contains('Data',ignore.case = T),.fns = ymd_hms)) %>% 
     filter(NHC %notin% c('N/D'), !is.na(NHC)) #Afegeixo Dades sense Medicament_Agregat
 #Anys de treball:
-Any.inici<-year(today())-3
-Any.final<-year(today())
+Any.inici<-year(today())-4
+Any.final<-year(today())-1
 # Anàlisi DAS -------------------------------------------------------------
 
 df.var<-df.proc %>% select(NHC,NHC..sense.ceros.,CIP,Procés.ID,RPT.ATC.Codi,RPT.ATC.Descripció,RPT.Indicació.Codi,RPT.Indicació.Descripció,Procés.Inici.Data,Procés.Fi.Data,
@@ -116,7 +116,7 @@ TR.DAS28<-df.resultats.proces %>%
                         ),everything())
 
 #Preparació per flextable
-table1.data<-TR.DAS28 %>% filter(Any.inici.proces%in%c((year(today())-3):year(today()))) %>% 
+table1.data<-TR.DAS28 %>% filter(Any.inici.proces%in%c((year(today())-3):year(today())-1)) %>% 
   dplyr::mutate(across(.cols = starts_with('%'),.fns = ~paste0(.,'%'))) %>% 
   select(-RPT.Indicació.Descripció)
 
@@ -142,7 +142,7 @@ TR.DAS28.plot<-TR.DAS28 %>% select(-starts_with('Temps'),-contains('Indicació')
     dplyr::mutate(across(.cols = starts_with('Num'),.fns = ~ round(.*100/Suma,1),
                       .names = '%{.col}')
                 ) %>% select(-Suma) %>% 
-  filter(Any.inici.proces %in% c((year(today())-3):year(today())))
+  filter(Any.inici.proces %in% c((year(today())-3):year(today())-1))
 
 #Df per resultats absoluts
 TR.DAS28.plot.gather.n<-TR.DAS28.plot %>% select(-starts_with('%')) %>% 
@@ -375,8 +375,8 @@ df.presc.base<-df.presc %>%
 df.cons.presc<-df.var.con %>% 
   left_join(df.presc.base,
             by=c('Nhc'='NHC (sense ceros)',
-                 'Medicament.Codi'='Medicament Codi')) %>% 
-  select(NHC,CIP,Procés.ID,Procés.Inici.Data)
+                 'Medicament.Codi'='Medicament Codi')) #%>% 
+  #select(NHC,CIP,Procés.ID,Procés.Inici.Data)
 
 
 # QC ----------------------------------------------------------------------
