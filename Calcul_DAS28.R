@@ -327,6 +327,7 @@ names(llistats.grafics.DAS28)<-paste0('Evolució del valor DAS28 en pacients tra
                                    ' durants els anys ',Any.min.Das28,'-',Any.max.Das28)
 
 
+
 # Càlcul del proportion of days covered (PDC) -----------------------------
 
 #Calculem el total d'unitats
