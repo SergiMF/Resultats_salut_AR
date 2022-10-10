@@ -24,7 +24,7 @@ pacients.medicament<-df.estudi %>% #seguiment entre els anys 2014:2021
 df<-df.estudi %>% 
   select(Valor.Variable.Codi,Mesos.desde.primer.pas,RPT.ATC.Descripció) %>% 
   filter(RPT.ATC.Descripció%in%pacients.medicament$RPT.ATC.Descripció) %>% 
-  mutate(Es.cura=ifelse(Valor.Variable.Codi<=2.6,TRUE,FALSE)) %>% #event=es cura
+  mutate(Es.cura=ifelse(Valor.Variable.Codi<=2.6,TRUE,FALSE)) %>% #event es cura
   rename(.,c('Valor.Variable.Codi'='DAS28','Mesos.desde.primer.pas'='Temps','RPT.ATC.Descripció'='Medicament'))
 
 write.xlsx(df,'QC/DF_estudi_supervivència.xlsx')

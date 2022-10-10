@@ -332,7 +332,7 @@ names(llistats.grafics.DAS28)<-paste0('Evolució del valor DAS28 en pacients tra
 #Calculem el total d'unitats
 
 df.var.con<-df.cons %>% 
-  select(Nhc,Cip,Medicament.Codi,Medicament.Descripció,Medicament.AGRUPAT,
+  select(Nhc,Cip,Medicament.Codi,Medicament.Descripció,Medicament.AGRUPAT,Episodi,
          Especialitat..Codi.nacional.,Especialitat.Descripció,Forma.Medicament.Descripció,Data.Consum,Quantitat.Ecofin) %>% 
   arrange(Nhc,Data.Consum) %>% 
   group_by(Nhc,Medicament.Descripció ) %>% 
@@ -426,7 +426,7 @@ saveWorkbook(wbPresc,'QC/Prescripcions.xlsx',overwrite = T)
 
 df.cons.amb.prescr.reduït<-df.cons.presc %>% 
   filter(!is.na(`Prescripció ID`)) %>%
-  select(Nhc,Cip,Medicament.AGRUPAT,Medicament.Descripció,Especialitat..Codi.nacional.,Data.Consum,Quantitat.Ecofin,`Freqüència Descripció`,Posologia.dies,`Data Inici Prescripció`,
+  select(Nhc,Cip,Episodi,Medicament.AGRUPAT,Medicament.Descripció,Especialitat..Codi.nacional.,Data.Consum,Quantitat.Ecofin,`Freqüència Descripció`,Posologia.dies,`Data Inici Prescripció`,
          `Data Fi Prescripció`
   ) %>% 
   mutate(
@@ -612,7 +612,7 @@ Taules.Especialitat<-lapply(llistat.medicament.agrupat,function(x){
 
 #afegeixo titols pel print
 names(Taules.Especialitat)<-paste0('Detall dels valors d\'adherència del medicament ',llistat.medicament.agrupat,
-                                          ', per especialitat. Anys ',Any.min.Das28,'-',Any.max.Das28)
+                                          ', per especialitat. Anys ',Any.inici,'-',Any.final)
 
 
 # Print Resultats Das28 ---------------------------------------------------
