@@ -10,7 +10,7 @@ library(ggalluvial)
 
 # Dataset -----------------------------------------------------------------
 
-dfM.1<-df.cons.presc %>% 
+dfM.1<-df.cons.presc2 %>% 
   arrange(Nhc,Data.Consum) %>% 
   group_by(Nhc) %>% 
   dplyr::mutate(N.medicaments=n_distinct(Medicament.AGRUPAT),
@@ -33,13 +33,13 @@ dfM.1<-df.cons.presc %>%
 dfM.2<-dfM.1 %>% 
   pivot_wider(names_from =Ordre.Medicament,values_from =  c('Medicament.AGRUPAT','Temps.medicacio(mesos)'),
               names_sep = '') %>% 
-  unite(col = 'Union',starts_with('Medicament'),sep = '+',remove = F,na.rm = T) %>% 
-  group_by(Union) %>% 
+  unite(col = 'Combinació',starts_with('Medicament'),sep = '+',remove = F,na.rm = T) %>% 
+  group_by(Combinació) %>% 
   dplyr::mutate(N=n()) %>% ungroup() %>% 
-  select(Nhc,Union,N,contains(as.character(c(1:9)))) %>% 
+  select(Nhc,Combinació,N,contains(as.character(c(1:9)))) %>% 
   arrange(desc(N)) %>% 
   select(-Nhc) %>% 
-  group_by(Union) %>% distinct() %>% 
+  group_by(Combinació) %>% distinct() %>% 
   dplyr::mutate(across(.cols = starts_with('Temps'),.fns = ~ round(mean(.),1),.names = 'Mitjana_{.col}'),
                 across(.cols = starts_with('Temps'),.fns = ~ round(sd(.),1),.names = 'Sd_{.col}'),
                 across(.cols = starts_with('Temps'),.fns = min,.names = 'min_{.col}'),
@@ -48,11 +48,11 @@ dfM.2<-dfM.1 %>%
   ungroup() %>% 
   select(-starts_with('Temps')) %>% 
   distinct() %>%
-  select(Union,N,contains(as.character(c(1:9))))
+  select(Combinació,N,contains(as.character(c(1:9))))
 
 dfM.2.plot<-dfM.2 %>% head(20) %>% 
   dplyr::mutate(across(.cols = starts_with('Medicament'),.fns = ~factor(.))) %>% 
-  select(Union,N,contains(as.character(c(1:2))))
+  select(Combinació,N,contains(as.character(c(1:2))))
 
 plot.alluvium<-ggplot(dfM.2.plot,
        aes(axis1=Medicament.AGRUPAT1,
@@ -79,88 +79,27 @@ plot.alluvium<-ggplot(dfM.2.plot,
 
 wbMM<-createWorkbook()
 addWorksheet(wbMM,'Top_20_freqs',gridLines = F,tabColour = 'red')
+writeData(wbMM,1,
+          'Estudi de pacients amb AR amb més d\'una linia de tractament. Top 20 de combinacions més freqüents. Anys 2014-2021',
+          startCol = 1,startRow = 1)
 print(plot.alluvium)
-insertPlot(wbMM,sheet=1,width =30,height = 20,units = 'cm',fileType = 'jpeg',startCol = 1,startRow = 1)
+insertPlot(wbMM,sheet=1,width =30,height = 20,units = 'cm',fileType = 'jpeg',startCol = 1,startRow = 3)
 dev.off()
-writeDataTable(wbMM,1,dfM.2.plot,startCol = 1,startRow = 45)
-addWorksheet(wbMM,'Tots_MultiMedic',gridLines = F)
-writeDataTable(wbMM,2,dfM.2,startCol = 1,startRow = 1)
-addWorksheet(wbMM,'Raw_data',gridLines = F)
-writeDataTable(wbMM,3,dfM.1,startCol = 1,startRow = 1)
-saveWorkbook(wbMM,file = 'Resultats/Pacients_Multi_medicament.xlsx',overwrite = T)
+writeData(wbMM,1,
+          'Taula:Anàlisi 20 combinacions de medicaments més freqüents administrades a pacients amb AR. Detall dels temps de cada medicació. Anys 2014-2021',
+          startCol = 1,startRow = 45)
+writeDataTable(wbMM,1,dfM.2.plot,startCol = 1,startRow = 47)
 
+addWorksheet(wbMM,'Tots_MultiMedic',gridLines = T)
+writeData(wbMM,2,
+          'Estudi de pacients amb AR amb més d\'una linia de tractament. Totes les combinacions.Anys 2014-2021',
+          startCol = 1,startRow = 1)
 
+writeDataTable(wbMM,2,dfM.2,startCol = 1,startRow = 3)
+addWorksheet(wbMM,'Raw_data',gridLines = T)
+writeData(wbMM,3,
+          'Estudi de pacients amb AR amb més d\'una linia de tractament. Detall per NHC. Anys 2014-2021',
+          startCol = 1,startRow = 1)
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-#taula de freqüències
-prova<-dfM.2 %>% select(N,starts_with('Medicament.AGRUPAT'))
-llistat<-lapply(c(1:9), function(x){
-  df<-prova %>% select(x+1,1) %>% 
-    group_by_at(1) %>% 
-    dplyr::summarise(N=sum(N)) %>% as.data.frame()
-  names(df)[2]<-paste0('N_',x)
-}) %>%
-
-
-dfM.3<-dfM.2 %>% select(N,starts_with('Medicament.AGRUPAT')) %>% 
-  gather('Ordre','Medicament',2:ncol(.)) %>% 
-  group_by(Ordre,Medicament) %>% 
-  dplyr::summarise(Casos=sum(N)) %>% 
-  ungroup() %>% 
-  filter(!is.na(Medicament)) %>% 
-  spread(Ordre,Casos) %>% 
-  replace(is.na(.),0) %>% 
-  gather('Medicament','N',2:ncol(.)) %>% 
-  mutate(Ordre=str_extract(Ordre,'\\d$'))
-
-
-
-
-Colors.stratum<-list(`ADALIMUMAB`='#E41A1C',
-                     `ETANERCEPT`='#377EB8',
-                     `INFLIXIMAB`='#4DAF4A',
-                     `SECUKINUMAB`='#984EA3',
-                     `USTEKINUMAB`='#FF7F00',
-                     `VEDOLIZUMAB`='#FFFF33',
-                     `CERTOLIZUMAB`='#A65628',
-                     `GOLIMUMAB`='#F781BF',
-                     `GUSELKUMAB`='#999999',
-                     `IXEKIZUMAB`='#8b37e4',
-                     `RISANKIZUMAB`='#a8e6cf',
-                     `TOCILIZUMAB`='#cef310'
-  
-)
-
-
-
-
-
-
-#Fem tauleta amb freqüències:
-
-  
-
-#'gray88'
- 
+writeDataTable(wbMM,3,dfM.1,startCol = 1,startRow = 3)
+saveWorkbook(wbMM,file = paste0('Resultats/',avui,'_Pacients_Multi_medicament.xlsx'),overwrite = T)

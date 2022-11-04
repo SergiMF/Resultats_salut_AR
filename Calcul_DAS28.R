@@ -11,17 +11,38 @@
 suppressMessages(suppressWarnings(if (!require("pacman") == TRUE) { install.packages("pacman", quietly=T) }))
 suppressMessages(suppressWarnings(pacman::p_load(tidyverse,lubridate,openxlsx,plyr,readxl,eeptools,viridis,flextable,officer)))
 `%notin%` <- Negate(`%in%`)
+avui<-today() %>% format("%d_%m_%Y")
 
 # Càrrega dades -----------------------------------------------------------
 Arxiu.proc<-list.files('Dataset/Processos/',pattern = '*.csv',full.names = T)
 Arxiu.consums<-list.files('Dataset/Consums/',pattern = '*.csv',full.names = T)
 Arxiu.Prescripcions<-list.files('Dataset/Prescripcions/',pattern = '*.csv',full.names = T)
 
+#Extreure data real d'inici tractament (variable.codi==21643)
+df.proc.data.Inic<-read.csv2(Arxiu.proc) %>% 
+  filter(Variable.Codi=='21643') %>% #codi SAP de la variable
+  dplyr::mutate(across(.cols = contains('Data',ignore.case = T),.fns = ymd_hms),
+                across(.cols = starts_with('Valor.Variable.Codi'),.fns = ymd),
+                across(.cols = starts_with('Nhc'),.fns = as.character)
+  ) %>% 
+  select(NHC..sense.ceros.,Procés.ID,Valor.Variable.Codi) %>% 
+  rename(c('Valor.Variable.Codi'='Data.Inici.Real'))
+
+
+
+
 df.proc<-read.csv2(Arxiu.proc) %>% 
+  filter(Variable.Codi=='6458') %>% 
   dplyr::mutate(across(.cols = contains('Data',ignore.case = T),.fns = ymd_hms),
                 across(.cols = starts_with('Valor.Variable'),.fns = as.numeric),
                 across(.cols = starts_with('Nhc'),.fns = as.character)
-  )
+  ) %>% 
+  left_join(df.proc.data.Inic,by=c('NHC..sense.ceros.','Procés.ID')) %>% #afegim dates d'inici reals
+  select(1:Procés.ID,Data.Inici.Real,everything())
+
+#QC
+#write.xlsx(df.proc,paste0('QC/',avui,'_Dades_RPT.xlsx'),overwrite = T)
+
 
 df.cons<-read.csv2(Arxiu.consums) %>% 
   dplyr::mutate(across(.cols = contains('Data',ignore.case = T),.fns = ymd_hms)) %>% 
@@ -30,22 +51,25 @@ df.cons<-read.csv2(Arxiu.consums) %>%
 df.presc<-readr::read_csv2(Arxiu.Prescripcions,) %>% 
     dplyr::mutate(across(.cols = contains('Data',ignore.case = T),.fns = ymd_hms)) %>% 
     filter(NHC %notin% c('N/D'), !is.na(NHC)) #Afegeixo Dades sense Medicament_Agregat
+
 #Anys de treball:
 Any.inici<-year(today())-4
 Any.final<-year(today())-1
 # Anàlisi DAS -------------------------------------------------------------
 
-df.var<-df.proc %>% select(NHC,NHC..sense.ceros.,CIP,Procés.ID,RPT.ATC.Codi,RPT.ATC.Descripció,RPT.Indicació.Codi,RPT.Indicació.Descripció,Procés.Inici.Data,Procés.Fi.Data,
+df.var<-df.proc %>% select(NHC,NHC..sense.ceros.,CIP,Procés.ID,RPT.ATC.Codi,RPT.ATC.Descripció,RPT.Indicació.Codi,RPT.Indicació.Descripció,
+                           Data.Inici.Real,Procés.Inici.Data,Procés.Fi.Data,
                            Pas.Codi,Pas.Alliberat.Data,Pas.Número.dins.el.procés,Pas.següent.data,Pas.previ.data,
                            Variable.Descripció.Llarga,Valor.Variable.Codi) %>% 
   arrange(NHC,Procés.ID,Pas.Alliberat.Data,Pas.Número.dins.el.procés) #Numero.dins.procés??No coincideix amb dates
 
 #Els valors de DAS28>10 són errors. Els separem
-Outlyers.DAS28<-df.var %>% filter(Valor.Variable.Codi>10) #21 registres
+Outlayers.DAS28<-df.var %>% filter(Valor.Variable.Codi>10) #21 registres
 
 #Càlcul Increments de DAS i temps entre Pas
 
 df.dif.pas<-df.var%>% dplyr::group_by(NHC,Procés.ID) %>% 
+  #left_join(df.dictamen,by=c('RPT.ATC.Codi'='Codi.ATC')) %>% #afegeixo data dictàmen
   dplyr::mutate(
     Any.inici.proces=year(Procés.Inici.Data),
     DAS28.Activitat.pas=case_when(
@@ -69,30 +93,42 @@ df.dif.pas<-df.var%>% dplyr::group_by(NHC,Procés.ID) %>%
       (is.infinite(Diferencial.max.proces) & N>1) ~'Sense canvis',
       Diferencial.max.proces>0 ~'Fracàs'
     ),
-    Error.inici=ifelse(first(Valor.Variable.Codi<3.2)|any(Mesos.desde.primer.pas==0 & Valor.Variable.Codi<3.2) ,'Si','No'),#Comencen amb DAS28 baix
+    Error.inici=ifelse(first(Valor.Variable.Codi<3.2)|any(Mesos.desde.primer.pas==0 & Valor.Variable.Codi<3.2) ,'Si','No') #Comencen amb DAS28 baixa
   ) %>% ungroup() %>% 
   group_by(NHC) %>% #controls
   dplyr::mutate(
     Tractament.pur=ifelse(n_distinct(RPT.ATC.Codi)==1,'Si','No') #únic tractament
   ) %>% ungroup() %>% 
+  mutate(
+    Medicament.AGRUPAT= str_replace(RPT.ATC.Descripció,'Certolizumab pegol','Certolizumab') %>%
+      str_to_upper() #per poder creuar amb la resta de df
+  ) %>% 
   filter(Valor.Variable.Codi<=10) #outlyers
+
 
 # NETEJA DE DADES (Out of scoping)
 # -Pacients que comencen amb DAS<3.2  
 # -Pacients que tenen més d'un tractament
 df.dif.pas.2<-df.dif.pas %>% 
   filter(Tractament.pur=='Si') %>% 
-  filter(Error.inici=='No') #n=8303(-32.91%)
+  filter(Error.inici=='No')
+  #filter(Fora.dictamen=='No')#n=8303(-32.91%)
 
+#--------------------------------------------------------------------------------------------------------------
+# Dades en seguiment  -----------------------------------------------------
 
-
-
+#Número de pacients a l'estudi:
+nrow(df.dif.pas.2 %>% distinct(NHC..sense.ceros.)) #1166 pacients
+#Número de tractaments:
+nrow(df.dif.pas.2 %>% distinct(Procés.ID)) #1262
 #Mirem els anys de seguiment dels Valors de DAS28
-Any.min.Das28<-min(df.dif.pas.2$Any.inici.proces,na.rm = T)
-Any.max.Das28<-max(df.dif.pas.2$Any.inici.proces,na.rm = T)
- 
+Any.min.Das28<-min(df.dif.pas.2$Any.inici.proces,na.rm = T) #2014
+Any.max.Das28<-max(df.dif.pas.2$Any.inici.proces,na.rm = T) #2022
+#-------------------------------------------------------------------------------------------------------------- 
+
+
 df.resultats.proces<-df.dif.pas.2 %>% 
-  select(NHC,CIP,Any.inici.proces,Procés.ID,RPT.ATC.Descripció,RPT.Indicació.Codi,RPT.Indicació.Descripció,Variable.Descripció.Llarga,
+  select(NHC,CIP,Any.inici.proces,Procés.ID,Medicament.AGRUPAT,RPT.ATC.Descripció,RPT.Indicació.Codi,RPT.Indicació.Descripció,Variable.Descripció.Llarga,
          Diferencial.max.proces,N,Resultat.tractament.proces,Dies.fins.DAS.mínim) %>% 
   distinct()
 
@@ -330,9 +366,9 @@ names(llistats.grafics.DAS28)<-paste0('Evolució del valor DAS28 en pacients tra
 
 # Càlcul del proportion of days covered (PDC) -----------------------------
 
-#Calculem el total d'unitats
+#Consums
 
-df.var.con<-df.cons %>% 
+Consums<-df.cons %>% 
   select(Nhc,Cip,Medicament.Codi,Medicament.Descripció,Medicament.AGRUPAT,Episodi,
          Especialitat..Codi.nacional.,Especialitat.Descripció,Forma.Medicament.Descripció,Data.Consum,Quantitat.Ecofin) %>% 
   arrange(Nhc,Data.Consum) %>% 
@@ -343,7 +379,9 @@ df.var.con<-df.cons %>%
   ) %>% floor(),
   Nhc=as.character(str_replace(Nhc,'^0+',''))
   ) %>% ungroup() %>% 
+  filter(Nhc%in%df.dif.pas.2$NHC..sense.ceros.) %>%
   filter(Quantitat.Ecofin!=0) #trec aquelles entrades sense consums
+
 
 
 #prescripcions
@@ -369,63 +407,76 @@ df.presc.base<-df.presc %>%
   )) %>% 
   mutate(`Especialitat Codi Nacional`=as.integer(str_sub(`Especialitat Codi Nacional`,start = 1,end = -2)),
          `NHC (sense ceros)`=as.character(`NHC (sense ceros)`)) %>% 
+  filter(`NHC (sense ceros)`%in%df.dif.pas.2$NHC..sense.ceros.) %>% #només pacients amb RPT
   select(`NHC (sense ceros)`,NHC:`Freqüència Tipus Descripció`,Posologia.dies,everything())
 
 
+#--------------------------------------------------------------------------------------------------------------------
+# QC: Pacients sense Consums i/o sense prescripcions ----------------------
+
+
+Pacients.sense.consums<-df.dif.pas.2 %>%
+  filter(Any.inici.proces<year(today())) %>% #mirem consums en pacients fins el 2021
+  filter(NHC..sense.ceros.%notin%Consums$Nhc)
+#Numero Nhc sense consums
+nrow(Pacients.sense.consums %>% distinct(NHC..sense.ceros.)) #61
+
+Pacients.sense.prescripcions<-df.dif.pas.2 %>% 
+  filter(Any.inici.proces<year(today())) %>% #mirem prescripcions en pacients fins el 2021
+  filter(NHC..sense.ceros.%notin%df.presc.base$`NHC (sense ceros)`)
+#Numero Nhc sense prescripcions
+nrow(Pacients.sense.prescripcions %>% distinct(NHC..sense.ceros.)) #26
+
+Pacients.consum.sense.prescripcio<-df.dif.pas.2 %>%
+  filter(Any.inici.proces<year(today())) %>% #mirem prescripcions en pacients fins el 2021
+  filter(NHC..sense.ceros.%in%Consums$Nhc) %>% 
+  filter(NHC..sense.ceros.%notin%df.presc.base$`NHC (sense ceros)`)
+#Numero Nhc amb consum i sense prescripcions
+nrow(Pacients.consum.sense.prescripcio %>% distinct(NHC..sense.ceros.)) #24
+
+
+Pacients.prescripcio.sense.consum<-df.dif.pas.2 %>% 
+  filter(Any.inici.proces<year(today())) %>% #mirem prescripcions en pacients fins el 2021
+  filter(NHC..sense.ceros.%in%df.presc.base$`NHC (sense ceros)`) %>% 
+  filter(NHC..sense.ceros.%notin%Consums$Nhc)
+#Numero Nhc amb consum i sense prescripcions
+nrow(Pacients.prescripcio.sense.consum %>% distinct(NHC..sense.ceros.)) #59
+
+
+WbQC<-createWorkbook()
+addWorksheet(WbQC,'Pacients_sense_consums')
+writeData(WbQC,'Pacients_sense_consums','NHC que no hi consten a l\'univers de Consums, però sí tenen RPT',startCol =1 ,startRow =1)
+writeDataTable(WbQC,'Pacients_sense_consums',Pacients.sense.consums,startCol =1 ,startRow =3)
+
+addWorksheet(WbQC,'Consum_Si_Presc_No')
+writeData(WbQC,'Consum_Si_Presc_No','NHC que tenen un consum, un RPT, però no hi consten a l\'univers de Prescripcions',startCol =1 ,startRow =1 )
+writeDataTable(WbQC,'Consum_Si_Presc_No',Pacients.consum.sense.prescripcio,startCol =1 ,startRow =3 )
+
+addWorksheet(WbQC,'Presc_Si_Consum_No')
+writeData(WbQC,'Presc_Si_Consum_No','NHC que tenen un RPT, una prescripció, però no hi consten a l\'univers de Consums',startCol =1 ,startRow =1 )
+writeDataTable(WbQC,'Presc_Si_Consum_No',Pacients.prescripcio.sense.consum,startCol =1 ,startRow =3)
+saveWorkbook(WbQC,file = paste0('QC/',avui,'_Pacients_sense_Consums_prescripcions.xlsx'),overwrite = T)
+
+  
+#--------------------------------------------------------------------------------------------------------------------
+
 #versió creuant per codi medicament
-df.cons.presc<-df.var.con %>% 
+df.cons.presc<-Consums %>% 
   left_join(df.presc.base,
             by=c('Nhc'='NHC (sense ceros)',
                  'Medicament.Codi'='Medicament Codi')) #%>% 
   #select(NHC,CIP,Procés.ID,Procés.Inici.Data)
 
 
-# QC ----------------------------------------------------------------------
-
-#QC: Casos que comencen a medicar-se amb DAS28<2.6 (en remissió)
-df.Tractats.Remissió<-df.dif.pas %>%
-  filter(N>1) %>% #en seguiment
-  group_by(NHC) %>% 
-  dplyr::mutate(Check=ifelse(first(Valor.Variable.Codi<2.6),'Si','No')) %>% 
-  ungroup() %>% 
-  filter(Check=='Si') %>% 
-  select(Any.inici.proces,NHC,CIP,Procés.ID,RPT.ATC.Descripció,Pas.Número.dins.el.procés,Pas.Alliberat.Data,
-         Valor.Variable.Codi,DAS28.Activitat.pas,Resultat.tractament.proces
-         ) %>% 
-  arrange(NHC,Procés.ID,Pas.Número.dins.el.procés)
 
 
+# Creuament processos + consums + prescripcions ---------------------------
+#com que no podem filtrar consums i prescripcions per indicació. Seleccionem els consums pels NHc dels pacients
 
-wbTR<-createWorkbook()
-addWorksheet(wbTR,sheetName = 'Das28_Remissio')
-writeData(wbTR,1,df.Tractats.Remissió)
-saveWorkbook(wbTR,'QC/Tractaments_Das28_Remissió.xlsx',overwrite = T)
-
-# QC: Control de Consums que no disposen d'Id de prescripcions 
-  #!!!! Causa ppal: Moltes prescripcions no disposen de codi especialitat
-
-#QC: Consums on no hi consten les prescripcions ambulatories per aquell NHC
-df.cons.sense.presc<-df.cons.presc %>% filter(is.na(`Prescripció ID`)) %>% distinct()
-df.cons.amb.prescr<-df.cons.presc %>% filter(!is.na(`Prescripció ID`))
+df.cons.presc2<-df.cons.presc %>% filter(Nhc%in%df.resultats.proces$NHC) #consums i prescripcions dels pacients d'estudi
 
 
-
-#QC: Prescripcions que no han creuat amb consums
-wbQC<-createWorkbook()
-addWorksheet(wbQC,sheetName = 'Consums_sense_prescripcio')
-writeData(wbQC,1,df.cons.sense.presc)
-saveWorkbook(wbQC,'QC/Consums_sense_prescripcions.xlsx',overwrite = T)
-
-QC.presc<-df.presc %>% select(`NHC (sense ceros)`,CIP,`Medicament Codi`,`Medicament Descripció`,
-                              `Especialitat Codi Nacional`,`Especialitat Descripció`,`Data Inici Prescripció`,`Data Fi Prescripció`)
-wbPresc<-createWorkbook()
-addWorksheet(wbPresc,'Prescripcions')
-writeData(wbPresc,1,QC.presc)
-saveWorkbook(wbPresc,'QC/Prescripcions.xlsx',overwrite = T)
-
-# Creem la df creuada neta ------------------------------------------------
-
-df.cons.amb.prescr.reduït<-df.cons.presc %>% 
+df.cons.amb.prescr.reduït<-df.cons.presc2 %>% 
   filter(!is.na(`Prescripció ID`)) %>%
   select(Nhc,Cip,Episodi,Medicament.AGRUPAT,Medicament.Descripció,Especialitat..Codi.nacional.,Data.Consum,Quantitat.Ecofin,`Freqüència Descripció`,Posologia.dies,`Data Inici Prescripció`,
          `Data Fi Prescripció`
